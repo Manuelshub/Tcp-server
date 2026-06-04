@@ -5,7 +5,15 @@ int handle_error(const char *message) {
     return EXIT_FAILURE;
 }
 
-void sigchld_handler(int signum) {
-    (void) signum;
-    while (waitpid(-1, NULL, WNOHANG) > 0);
+/* Returns a formatted timestamp string for logging purposes */
+const char *get_log_timestamp() {
+    static char buffer[20];
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
+
+    if (strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm) == 0) {
+        return "ERROR-TIME";
+    }
+    
+    return buffer;
 }
