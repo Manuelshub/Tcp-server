@@ -14,7 +14,7 @@
 int main(int ac, char **av) {
 	int sock_fd, pton_res;
 	struct sockaddr_in addr;
-	char buffer[BUFFER_SIZE], client_name[32];
+	char buffer[BUFFER_SIZE], *client_name;
 	ssize_t send_res, recv_res;
 	fd_set read_fds;
 
@@ -22,7 +22,13 @@ int main(int ac, char **av) {
 	    fprintf(stderr, "Usage: %s <client_name>\n", av[0]);
 		return EXIT_FAILURE;
 	}
-	snprintf(client_name, sizeof(client_name), "%s", av[1]);
+
+	client_name = malloc(strlen(av[1]) + 1);
+	if (client_name == NULL) {
+	    fprintf(stderr, "malloc failed\n");
+		return EXIT_FAILURE;
+	}
+	strcpy(client_name, av[1]);
 
 	sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock_fd == -1) {
@@ -76,6 +82,7 @@ int main(int ac, char **av) {
 		}
 	}
 
+	free(client_name);
 	close(sock_fd);
 	return EXIT_SUCCESS;
 }
