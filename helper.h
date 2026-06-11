@@ -2,6 +2,7 @@
 #define HELPER_H
 
 /* Header files */
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -12,6 +13,9 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <time.h>
+#include <poll.h>
+#include <sys/poll.h>
+
 
 int handle_error(const char *message);
 void sigchld_handler(int signum);
