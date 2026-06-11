@@ -1,23 +1,18 @@
 #include "helper.h"
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/select.h>
-#include <unistd.h>
 
 #define PORT 8080
-#define MAX_LENGTH 128
+#define MAX_LENGTH 512
 #define BACKLOG 10
 #define MAX_CLIENTS 20
 
 int main() {
-	int i, sock_fd, accept_fd, optval, client_arr[MAX_CLIENTS];
-	int max_fd;
-	char buffer[MAX_LENGTH];
+	int i, sock_fd, accept_fd, optval, poll_res;
+	char buffer[MAX_LENGTH], *msg_to_user;
 	socklen_t addrlen;
 	struct sockaddr_in server_addr, client_addr;
+	struct pollfd fds[MAX_CLIENTS + 1];
 	ssize_t bytes_read;
-	fd_set master_fds, temp_fds;
+	nfds_t nfds;
 
 	printf("Welcome to Our Custom made Tcp Chat App\n");
 	/* Opening up the socket to for incoming connections */
@@ -25,7 +20,6 @@ int main() {
 	if (sock_fd == -1) {
 		return handle_error("socket()");
 	}
-	printf("Socket created successfully...\n");
 	
 	optval = 1;
 	if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
@@ -35,79 +29,82 @@ int main() {
 	memset(&server_addr, 0, sizeof(server_addr));
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(PORT);
-	server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
+	server_addr.sin_addr.s_addr = INADDR_ANY;
 
 	/* Binding the socket to the server address */
 	if (bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == -1) {
 		return handle_error("bind()");
 	}
-	printf("Bind Successful...\n");
 	/* Listening for incoming connections */
 	if (listen(sock_fd, BACKLOG) == -1) {
 		return handle_error("listen()");
 	}
-	printf("Listening on socket for incoming connection...\n");
 
 	addrlen = (socklen_t)sizeof(client_addr);
-	/* Initialize client array with -1 which is not a valid file descriptor */
-	for (i = 0; i < MAX_CLIENTS; i++) {
-		client_arr[i] = -1;
-	}
+	nfds = 1;
+	fds[0].fd = sock_fd;
+	fds[0].events = POLLIN;
 
-	max_fd = sock_fd;
-	FD_ZERO(&master_fds);
-	FD_SET(sock_fd, &master_fds);
+	for (i = 1; i <= MAX_CLIENTS; i++) {
+	    fds[i].fd = -1;
+		fds[i].events = POLLIN;
+	}
+	msg_to_user = "Welcome onboard user!!!";
+
 	while (1) {
-	    temp_fds = master_fds;
-		if (select(max_fd + 1, &temp_fds, NULL, NULL, NULL) == -1) {
-			return handle_error("select()");
+		poll_res = poll(fds, nfds, -1);
+		if (poll_res <= 0) {
+		    if (poll_res == -1) {
+				if (errno == EINTR) continue;
+				perror("poll()");
+				exit(EXIT_FAILURE);
+			}
+			continue;
 		}
-		if (FD_ISSET(sock_fd, &temp_fds)) {
+		if (fds[0].revents & POLLIN) {
 		    accept_fd = accept(sock_fd, (struct sockaddr *)&client_addr, &addrlen);
 		    if (accept_fd == -1) {
 		        if (errno == EINTR) continue;
 				perror("accept()");
 				continue;
 		    }
-			FD_SET(accept_fd, &master_fds);
-			if (accept_fd > max_fd)
-				max_fd = accept_fd;
-			for (i = 0; i < MAX_CLIENTS; i++) {
-				if (client_arr[i] == -1) {
-					client_arr[i] = accept_fd;
+			if (send(accept_fd, msg_to_user, strlen(msg_to_user), 0) == -1) {
+			    close(accept_fd);
+				return handle_error("send()");
+			}
+			for (i = 1; i <= MAX_CLIENTS; i++) {
+				if (fds[i].fd == -1) {
+					fds[i].fd = accept_fd;
 					break;
 				}
 			}
 			if (i == MAX_CLIENTS) {
-			    fprintf(stderr, "Max clients reached\n");
+			    fprintf(stderr, "Max number of clients reached\n");
 			    close(accept_fd);
-			    FD_CLR(accept_fd, &master_fds);
+			}
+			else {
+			    if (i + 1 > (int)nfds)
+					nfds = i + 1;
 			}
 		}
-		for (i = 0; i < MAX_CLIENTS; i++) {
-		    if (client_arr[i] == -1) continue;
-			if (FD_ISSET(client_arr[i], &temp_fds)) {
-				bytes_read = read(client_arr[i], buffer, MAX_LENGTH-1);
+		for (i = 1; i < MAX_CLIENTS + 1; i++) {
+		    if (fds[i].fd == -1) continue;
+			if (fds[i].revents & POLLIN) {
+				bytes_read = read(fds[i].fd, buffer, MAX_LENGTH-1);
 				if (bytes_read <= 0) {
 					if (bytes_read == 0)
-						fprintf(stderr, "client %d left the chat\n", client_arr[i]);
+						fprintf(stderr, "client %d left the chat\n", fds[i].fd);
 					else
 					    perror("read()");
-					close(client_arr[i]);
-					FD_CLR(client_arr[i], &master_fds);
-					client_arr[i] = -1;
-					max_fd = sock_fd;
-					for (int j = 0; j < MAX_CLIENTS; j++) {
-						if (client_arr[j] > max_fd)
-							max_fd = client_arr[j];
-					}
+					close(fds[i].fd);
+					fds[i].fd = -1;
 				}
 				else {
 				    buffer[bytes_read] = '\0';
 					printf("[%s] %s\n", get_log_timestamp(), buffer);
-					for (int k = 0; k < MAX_CLIENTS; k++) {
-					    if (client_arr[k] != -1 && client_arr[k] != client_arr[i]) {
-							if (write(client_arr[k], buffer, bytes_read) == -1) {
+					for (int k = 1; k < MAX_CLIENTS + 1; k++) {
+					    if (fds[k].fd != -1 && fds[k].fd != fds[i].fd) {
+							if (write(fds[k].fd, buffer, bytes_read) == -1) {
 								perror("write()");
 							}
 						}
