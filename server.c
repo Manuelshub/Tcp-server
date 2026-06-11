@@ -1,4 +1,5 @@
 #include "helper.h"
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/select.h>
@@ -7,24 +8,24 @@
 #define PORT 8080
 #define MAX_LENGTH 128
 #define BACKLOG 10
-#define MAX_CLIENTS 16
+#define MAX_CLIENTS 20
 
 int main() {
 	int i, sock_fd, accept_fd, optval, client_arr[MAX_CLIENTS];
 	int max_fd;
-	// const char *message = "Message received";
 	char buffer[MAX_LENGTH];
 	socklen_t addrlen;
 	struct sockaddr_in server_addr, client_addr;
 	ssize_t bytes_read;
 	fd_set master_fds, temp_fds;
 
-	printf("Welcome to Our Custom made Tcp Server\n");
+	printf("Welcome to Our Custom made Tcp Chat App\n");
 	/* Opening up the socket to for incoming connections */
 	sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock_fd == -1) {
 		return handle_error("socket()");
 	}
+	printf("Socket created successfully...\n");
 	
 	optval = 1;
 	if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
@@ -34,16 +35,18 @@ int main() {
 	memset(&server_addr, 0, sizeof(server_addr));
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(PORT);
-	server_addr.sin_addr.s_addr = INADDR_ANY;
+	server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
 
 	/* Binding the socket to the server address */
 	if (bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == -1) {
 		return handle_error("bind()");
 	}
+	printf("Bind Successful...\n");
 	/* Listening for incoming connections */
 	if (listen(sock_fd, BACKLOG) == -1) {
 		return handle_error("listen()");
 	}
+	printf("Listening on socket for incoming connection...\n");
 
 	addrlen = (socklen_t)sizeof(client_addr);
 	/* Initialize client array with -1 which is not a valid file descriptor */
@@ -87,7 +90,7 @@ int main() {
 				bytes_read = read(client_arr[i], buffer, MAX_LENGTH-1);
 				if (bytes_read <= 0) {
 					if (bytes_read == 0)
-						fprintf(stderr, "client %d disconnected\n", client_arr[i]);
+						fprintf(stderr, "client %d left the chat\n", client_arr[i]);
 					else
 					    perror("read()");
 					close(client_arr[i]);
